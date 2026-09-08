@@ -46,13 +46,14 @@ Communication rules:
       reply: response.text,
     });
   } catch (error) {
-    console.error(error);
+    console.error("AI API Error:", error);
 
     return Response.json(
       {
-        error: "Something went wrong while talking to the AI.",
+        error: error.message || "Something went wrong while talking to the AI.",
+        status: error.status || 500,
       },
-      { status: 500 },
+      { status: error.status || 500 },
     );
   }
 }
