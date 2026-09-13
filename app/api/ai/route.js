@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+
 import {
   checkCabinAvailability,
   getCabinByNumber,
@@ -8,6 +9,9 @@ import {
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
+
+const PRIMARY_MODEL = "gemini-3.7-flash";
+const FALLBACK_MODEL = "gemini-3.6-flash";
 
 const getCabinTool = {
   type: "function",
@@ -62,10 +66,13 @@ const checkAvailabilityTool = {
   },
 };
 
+const tools = [getCabinTool, getCabinsTool, checkAvailabilityTool];
+
 async function getCabinForAI({ cabinNumber }) {
   if (cabinNumber < 1 || cabinNumber > 8) {
     throw new Error("Invalid cabin number");
   }
+
   return await getCabinByNumber(cabinNumber);
 }
 
@@ -80,6 +87,24 @@ async function checkAvailabilityForAI({ cabinNumber, startDate, endDate }) {
 
   if (!startDate || !endDate) {
     throw new Error("Start date and end date are required");
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error("Invalid date format");
+  }
+
+  if (start < today) {
+    throw new Error("The check-in date cannot be in the past");
+  }
+
+  if (end <= start) {
+    throw new Error("The check-out date must be after the check-in date");
   }
 
   const cabin = await getCabinByNumber(cabinNumber);
@@ -101,6 +126,95 @@ const availableFunctions = {
   check_availability: checkAvailabilityForAI,
 };
 
+function isRetryableAIError(error) {
+  return error?.status === 429 || error?.status === 503;
+}
+
+async function createInteraction(model, history) {
+  const today = new Date().toISOString().split("T")[0];
+
+  return await ai.interactions.create({
+    model,
+    store: false,
+    input: history,
+    tools,
+    system_instruction: `
+      You are the AI Concierge for The Wild Oasis,
+      a luxury cabin hotel in the Italian Dolomites.
+
+      Your role is to assist guests with questions
+      about the hotel and their stay.
+
+      You can help with:
+      - cabins
+      - amenities
+      - reservations
+      - hotel policies
+      - activities
+      - general guest questions
+
+      Communication rules:
+      - Be friendly and welcoming.
+      - Keep answers concise.
+      - Use simple language.
+      - Ask follow-up questions when necessary.
+      - Never invent hotel information.
+      - If information is unavailable, say so clearly.
+      - Do not claim that a cabin is available unless
+        availability has been verified by the application.
+
+      When a guest asks about a specific cabin,
+      use the get_cabin tool to retrieve the actual
+      cabin information before answering.
+
+      When a guest asks about cabins in general,
+      or wants to compare cabins, prices, capacity,
+      or other cabin information, use the get_cabins
+      tool to retrieve the actual cabin data before
+      answering.
+
+      When a guest asks whether a cabin is available
+      for specific dates, always use the
+      check_availability tool.
+
+      Never guess or assume availability.
+
+      Only say that a cabin is available or unavailable
+      based on the result returned by the tool.
+
+      Today's date is ${today}.
+
+      When interpreting dates:
+      - Treat today's date as the reference date.
+      - Never assume a year that is already in the past.
+      - If the guest gives a month and day without a year
+        and the intended year is ambiguous, ask the guest
+        which year they mean.
+      - If the guest explicitly says "this year", use the
+        current year.
+      - If the guest says "next year", use the following year.
+    `,
+  });
+}
+
+async function createAIInteraction(history) {
+  try {
+    console.log(`Trying primary model: ${PRIMARY_MODEL}`);
+
+    return await createInteraction(PRIMARY_MODEL, history);
+  } catch (error) {
+    if (!isRetryableAIError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      `Primary model failed with ${error.status}. Trying fallback model: ${FALLBACK_MODEL}`,
+    );
+
+    return await createInteraction(FALLBACK_MODEL, history);
+  }
+}
+
 export async function POST(request) {
   try {
     const { message } = await request.json();
@@ -120,59 +234,7 @@ export async function POST(request) {
     let interaction;
 
     while (true) {
-      interaction = await ai.interactions.create({
-        model: "gemini-3.7-flash",
-        store: false,
-
-        input: history,
-
-        tools: [getCabinTool, getCabinsTool, checkAvailabilityTool],
-
-        system_instruction: `
-          You are the AI Concierge for The Wild Oasis,
-          a luxury cabin hotel in the Italian Dolomites.
-
-          Your role is to assist guests with questions
-          about the hotel and their stay.
-
-          You can help with:
-          - cabins
-          - amenities
-          - reservations
-          - hotel policies
-          - activities
-          - general guest questions
-
-          Communication rules:
-          - Be friendly and welcoming.
-          - Keep answers concise.
-          - Use simple language.
-          - Ask follow-up questions when necessary.
-          - Never invent hotel information.
-          - If information is unavailable, say so clearly.
-          - Do not claim that a cabin is available unless
-            availability has been verified by the application.
-
-          When a guest asks about a specific cabin,
-          use the get_cabin tool to retrieve the actual
-          cabin information before answering.
-
-          When a guest asks about cabins in general,
-          or wants to compare cabins, prices, capacity,
-          or other cabin information, use the get_cabins
-          tool to retrieve the actual cabin data before
-          answering.
-
-          When a guest asks whether a cabin is available
-          for specific dates, always use the
-          check_availability tool.
-
-          Never guess or assume availability.
-
-          Only say that a cabin is available or unavailable
-          based on the result returned by the tool.
-        `,
-      });
+      interaction = await createAIInteraction(history);
 
       const functionResults = [];
 
@@ -201,6 +263,7 @@ export async function POST(request) {
           };
 
           functionResults.push(functionResult);
+
           history.push(functionResult);
         }
       }
