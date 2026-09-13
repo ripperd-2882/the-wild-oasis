@@ -1,5 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
-import { getCabinByNumber, getCabins } from "../../_lib/data-service";
+import {
+  checkCabinAvailability,
+  getCabinByNumber,
+  getCabins,
+} from "../../_lib/data-service";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -33,6 +37,31 @@ const getCabinsTool = {
   },
 };
 
+const checkAvailabilityTool = {
+  type: "function",
+  name: "check_availability",
+  description:
+    "Checks whether a specific cabin is available for a guest's requested date range. Use this whenever the guest asks whether a cabin is available or can be booked for specific dates.",
+  parameters: {
+    type: "object",
+    properties: {
+      cabinNumber: {
+        type: "integer",
+        description: "The cabin number shown to guests, from 1 to 8.",
+      },
+      startDate: {
+        type: "string",
+        description: "The requested check-in date in YYYY-MM-DD format.",
+      },
+      endDate: {
+        type: "string",
+        description: "The requested check-out date in YYYY-MM-DD format.",
+      },
+    },
+    required: ["cabinNumber", "startDate", "endDate"],
+  },
+};
+
 async function getCabinForAI({ cabinNumber }) {
   if (cabinNumber < 1 || cabinNumber > 8) {
     throw new Error("Invalid cabin number");
@@ -44,9 +73,32 @@ async function getCabinsForAI() {
   return await getCabins();
 }
 
+async function checkAvailabilityForAI({ cabinNumber, startDate, endDate }) {
+  if (cabinNumber < 1 || cabinNumber > 8) {
+    throw new Error("Invalid cabin number");
+  }
+
+  if (!startDate || !endDate) {
+    throw new Error("Start date and end date are required");
+  }
+
+  const cabin = await getCabinByNumber(cabinNumber);
+
+  const available = await checkCabinAvailability(cabin.id, startDate, endDate);
+
+  return {
+    cabinNumber,
+    cabinName: cabin.name,
+    startDate,
+    endDate,
+    available,
+  };
+}
+
 const availableFunctions = {
   get_cabin: getCabinForAI,
   get_cabins: getCabinsForAI,
+  check_availability: checkAvailabilityForAI,
 };
 
 export async function POST(request) {

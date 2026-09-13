@@ -8,7 +8,7 @@ async function Reservation({ cabin }) {
   const [settings, bookedDates] = await Promise.all([
     getSettings(),
     getBookedDatesByCabinId(cabin.id),
-  ]); //Takes am much time as the slowest component
+  ]); //Takes as much time as the slowest component
   const session = await auth();
 
   return (

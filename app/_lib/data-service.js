@@ -143,6 +143,21 @@ export async function getBookedDatesByCabinId(cabinId) {
   return bookedDates;
 }
 
+export async function checkCabinAvailability(cabinId, startDate, endDate) {
+  const bookedDates = await getBookedDatesByCabinId(cabinId);
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  const isBooked = bookedDates.some((bookedDate) => {
+    const date = new Date(bookedDate);
+
+    return date >= start && date <= end;
+  });
+
+  return !isBooked;
+}
+
 export async function getSettings() {
   const { data, error } = await supabase.from("settings").select("*").single();
 
