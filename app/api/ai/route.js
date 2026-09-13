@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { getCabinByNumber } from "../../_lib/data-service";
+import { getCabinByNumber, getCabins } from "../../_lib/data-service";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -37,12 +37,16 @@ async function getCabinForAI({ cabinNumber }) {
   if (cabinNumber < 1 || cabinNumber > 8) {
     throw new Error("Invalid cabin number");
   }
-
   return await getCabinByNumber(cabinNumber);
+}
+
+async function getCabinsForAI() {
+  return await getCabins();
 }
 
 const availableFunctions = {
   get_cabin: getCabinForAI,
+  get_cabins: getCabinsForAI,
 };
 
 export async function POST(request) {
@@ -70,7 +74,7 @@ export async function POST(request) {
 
         input: history,
 
-        tools: [getCabinTool],
+        tools: [getCabinTool, getCabinsTool],
 
         system_instruction: `
           You are the AI Concierge for The Wild Oasis,
@@ -100,6 +104,12 @@ export async function POST(request) {
           When a guest asks about a specific cabin,
           use the get_cabin tool to retrieve the actual
           cabin information before answering.
+
+          When a guest asks about cabins in general,
+          or wants to compare cabins, prices, capacity,
+          or other cabin information, use the get_cabins
+          tool to retrieve the actual cabin data before
+          answering.
         `,
       });
 
