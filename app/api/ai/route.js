@@ -22,6 +22,17 @@ const getCabinTool = {
   },
 };
 
+const getCabinsTool = {
+  type: "function",
+  name: "get_cabins",
+  description:
+    "Gets information about all cabins at The Wild Oasis. Use this when the guest asks about available cabins, cabin options, prices, capacities, or wants to compare cabins.",
+  parameters: {
+    type: "object",
+    properties: {},
+  },
+};
+
 async function getCabinForAI({ cabinNumber }) {
   if (cabinNumber < 1 || cabinNumber > 8) {
     throw new Error("Invalid cabin number");
