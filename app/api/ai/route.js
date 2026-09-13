@@ -126,7 +126,7 @@ export async function POST(request) {
 
         input: history,
 
-        tools: [getCabinTool, getCabinsTool],
+        tools: [getCabinTool, getCabinsTool, checkAvailabilityTool],
 
         system_instruction: `
           You are the AI Concierge for The Wild Oasis,
@@ -162,6 +162,15 @@ export async function POST(request) {
           or other cabin information, use the get_cabins
           tool to retrieve the actual cabin data before
           answering.
+
+          When a guest asks whether a cabin is available
+          for specific dates, always use the
+          check_availability tool.
+
+          Never guess or assume availability.
+
+          Only say that a cabin is available or unavailable
+          based on the result returned by the tool.
         `,
       });
 
