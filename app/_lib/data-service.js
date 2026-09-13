@@ -23,6 +23,23 @@ export async function getCabin(id) {
   return data;
 }
 
+export async function getCabinByNumber(cabinNumber) {
+  const cabinName = String(cabinNumber).padStart(3, "0");
+
+  const { data, error } = await supabase
+    .from("cabins")
+    .select("*")
+    .eq("name", cabinName)
+    .single();
+
+  if (error) {
+    console.error(error);
+    throw new Error("Cabin could not be loaded");
+  }
+
+  return data;
+}
+
 export async function getCabinPrice(id) {
   const { data, error } = await supabase
     .from("cabins")

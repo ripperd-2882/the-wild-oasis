@@ -1,20 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
-import { getCabin } from "../../_lib/data-service";
+import { getCabinByNumber } from "../../_lib/data-service";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
-
-const cabinMap = {
-  1: 1,
-  2: 20,
-  3: 21,
-  4: 23,
-  5: 32,
-  6: 33,
-  7: 34,
-  8: 35,
-};
 
 const getCabinTool = {
   type: "function",
@@ -34,13 +23,11 @@ const getCabinTool = {
 };
 
 async function getCabinForAI({ cabinNumber }) {
-  const databaseId = cabinMap[cabinNumber];
-
-  if (!databaseId) {
+  if (cabinNumber < 1 || cabinNumber > 8) {
     throw new Error("Invalid cabin number");
   }
 
-  return await getCabin(databaseId);
+  return await getCabinByNumber(cabinNumber);
 }
 
 const availableFunctions = {
