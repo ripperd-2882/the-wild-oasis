@@ -248,7 +248,16 @@ export async function POST(request) {
             throw new Error(`Unknown function: ${step.name}`);
           }
 
-          const result = await functionToCall(step.arguments);
+          let result;
+
+          try {
+            result = await functionToCall(step.arguments);
+          } catch (error) {
+            result = {
+              error:
+                error.message || "The tool could not complete the request.",
+            };
+          }
 
           const functionResult = {
             type: "function_result",
