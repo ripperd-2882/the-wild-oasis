@@ -251,9 +251,15 @@ export async function POST(request) {
           let result;
 
           try {
-            result = await functionToCall(step.arguments);
+            const data = await functionToCall(step.arguments);
+
+            result = {
+              success: true,
+              data,
+            };
           } catch (error) {
             result = {
+              success: false,
               error:
                 error.message || "The tool could not complete the request.",
             };
