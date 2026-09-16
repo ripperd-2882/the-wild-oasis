@@ -8,10 +8,16 @@ import {
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    timeout: 15000,
+    retryOptions: {
+      attempts: 1,
+    },
+  },
 });
 
-const PRIMARY_MODEL = "gemini-3.7-flash";
-const FALLBACK_MODEL = "gemini-3.6-flash";
+const PRIMARY_MODEL = "gemini-3.6-flash";
+const FALLBACK_MODEL = "gemini-3.7-flash";
 
 const getCabinTool = {
   type: "function",
@@ -127,7 +133,11 @@ const availableFunctions = {
 };
 
 function isRetryableAIError(error) {
-  return error?.status === 429 || error?.status === 503;
+  return (
+    error?.status === 429 ||
+    error?.status === 503 ||
+    error?.name === "TimeoutError"
+  );
 }
 
 async function createInteraction(model, history) {
@@ -217,7 +227,10 @@ async function createAIInteraction(history) {
 
 export async function POST(request) {
   try {
-    const { message } = await request.json();
+    const { message, conversationId } = await request.json();
+
+    console.log("Conversation ID:", conversationId);
+    console.log("Message:", message);
 
     const history = [
       {
