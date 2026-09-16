@@ -140,13 +140,11 @@ function isRetryableAIError(error) {
   );
 }
 
-async function createInteraction(model, history) {
-  const today = new Date().toISOString().split("T")[0];
-
+async function createInteraction(model, input, previousInteractionId) {
   return await ai.interactions.create({
     model,
-    store: false,
-    input: history,
+    input,
+    previous_interaction_id: previousInteractionId,
     tools,
     system_instruction: `
       You are the AI Concierge for The Wild Oasis,
