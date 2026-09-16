@@ -141,8 +141,11 @@ function isRetryableAIError(error) {
 }
 
 async function createInteraction(model, input, previousInteractionId) {
+  const today = new Date().toISOString().split("T")[0];
+
   return await ai.interactions.create({
     model,
+    store: true,
     input,
     previous_interaction_id: previousInteractionId,
     tools,
@@ -171,15 +174,25 @@ async function createInteraction(model, input, previousInteractionId) {
       - Do not claim that a cabin is available unless
         availability has been verified by the application.
 
+      Today's date is ${today}.
+
+      When interpreting dates:
+      - Treat today's date as the reference date.
+      - Never assume a year that is already in the past.
+      - If the guest gives a month and day without a year
+        and the intended year is ambiguous, ask which year
+        they mean.
+      - If the guest explicitly says "this year", use the
+        current year.
+      - If the guest says "next year", use the following year.
+      - Never check availability for dates in the past.
+
       When a guest asks about a specific cabin,
-      use the get_cabin tool to retrieve the actual
-      cabin information before answering.
+      use the get_cabin tool.
 
       When a guest asks about cabins in general,
       or wants to compare cabins, prices, capacity,
-      or other cabin information, use the get_cabins
-      tool to retrieve the actual cabin data before
-      answering.
+      or other cabin information, use the get_cabins tool.
 
       When a guest asks whether a cabin is available
       for specific dates, always use the
@@ -189,27 +202,24 @@ async function createInteraction(model, input, previousInteractionId) {
 
       Only say that a cabin is available or unavailable
       based on the result returned by the tool.
-
-      Today's date is ${today}.
-
-      When interpreting dates:
-      - Treat today's date as the reference date.
-      - Never assume a year that is already in the past.
-      - If the guest gives a month and day without a year
-        and the intended year is ambiguous, ask the guest
-        which year they mean.
-      - If the guest explicitly says "this year", use the
-        current year.
-      - If the guest says "next year", use the following year.
     `,
   });
 }
 
-async function createAIInteraction(history) {
+async function createAIInteraction(input, previousInteractionId) {
   try {
     console.log(`Trying primary model: ${PRIMARY_MODEL}`);
 
-    return await createInteraction(PRIMARY_MODEL, history);
+    const interaction = await createInteraction(
+      PRIMARY_MODEL,
+      input,
+      previousInteractionId,
+    );
+
+    return {
+      interaction,
+      model: PRIMARY_MODEL,
+    };
   } catch (error) {
     if (!isRetryableAIError(error)) {
       throw error;
@@ -219,7 +229,16 @@ async function createAIInteraction(history) {
       `Primary model failed with ${error.status}. Trying fallback model: ${FALLBACK_MODEL}`,
     );
 
-    return await createInteraction(FALLBACK_MODEL, history);
+    const interaction = await createInteraction(
+      FALLBACK_MODEL,
+      input,
+      previousInteractionId,
+    );
+
+    return {
+      interaction,
+      model: FALLBACK_MODEL,
+    };
   }
 }
 
@@ -230,77 +249,103 @@ export async function POST(request) {
     console.log("Conversation ID:", conversationId);
     console.log("Message:", message);
 
-    const history = [
-      {
-        type: "user_input",
-        content: [
-          {
-            type: "text",
-            text: message,
-          },
-        ],
-      },
-    ];
+    let input;
+    let previousInteractionId = conversationId;
+
+    // First message in a conversation
+    if (!conversationId) {
+      input = [
+        {
+          type: "user_input",
+          content: [
+            {
+              type: "text",
+              text: message,
+            },
+          ],
+        },
+      ];
+    } else {
+      // Follow-up message
+      input = [
+        {
+          type: "user_input",
+          content: [
+            {
+              type: "text",
+              text: message,
+            },
+          ],
+        },
+      ];
+    }
 
     let interaction;
 
     while (true) {
-      interaction = await createAIInteraction(history);
+      const result = await createAIInteraction(input, previousInteractionId);
+
+      interaction = result.interaction;
 
       const functionResults = [];
 
       for (const step of interaction.steps) {
-        history.push(step);
-
-        if (step.type === "function_call") {
-          const functionToCall = availableFunctions[step.name];
-
-          if (!functionToCall) {
-            throw new Error(`Unknown function: ${step.name}`);
-          }
-
-          let result;
-
-          try {
-            const data = await functionToCall(step.arguments);
-
-            result = {
-              success: true,
-              data,
-            };
-          } catch (error) {
-            result = {
-              success: false,
-              error:
-                error.message || "The tool could not complete the request.",
-            };
-          }
-
-          const functionResult = {
-            type: "function_result",
-            name: step.name,
-            call_id: step.id,
-            result: [
-              {
-                type: "text",
-                text: JSON.stringify(result),
-              },
-            ],
-          };
-
-          functionResults.push(functionResult);
-
-          history.push(functionResult);
+        if (step.type !== "function_call") {
+          continue;
         }
+
+        const functionToCall = availableFunctions[step.name];
+
+        if (!functionToCall) {
+          throw new Error(`Unknown function: ${step.name}`);
+        }
+
+        let toolResult;
+
+        try {
+          const data = await functionToCall(step.arguments);
+
+          toolResult = {
+            success: true,
+            data,
+          };
+        } catch (error) {
+          toolResult = {
+            success: false,
+            error: error.message || "The tool could not complete the request.",
+          };
+        }
+
+        functionResults.push({
+          type: "function_result",
+          name: step.name,
+          call_id: step.id,
+          result: [
+            {
+              type: "text",
+              text: JSON.stringify(toolResult),
+            },
+          ],
+        });
       }
 
+      // No function calls means Gemini has
+      // produced the final answer.
       if (functionResults.length === 0) {
         break;
       }
+
+      // Send the tool results back to Gemini.
+      // The previous interaction contains the
+      // conversation and the function call.
+      input = functionResults;
+
+      previousInteractionId = interaction.id;
     }
 
     return Response.json({
       reply: interaction.output_text,
+      conversationId: interaction.id,
     });
   } catch (error) {
     console.error("AI API Error:", error);
