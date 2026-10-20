@@ -65,6 +65,7 @@ function verifyConfirmationToken(token, guestId, booking) {
     payload.startDate === booking.startDate &&
     payload.endDate === booking.endDate &&
     payload.numGuests === booking.numGuests &&
+    payload.observations === booking.observations &&
     typeof payload.expiresAt === "number" &&
     payload.expiresAt > Date.now()
   );
@@ -113,6 +114,7 @@ export async function POST(request) {
       startDate,
       endDate,
       numGuests,
+      observations,
     };
 
     if (action === "prepare") {
