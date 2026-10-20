@@ -72,7 +72,45 @@ const checkAvailabilityTool = {
   },
 };
 
-const tools = [getCabinTool, getCabinsTool, checkAvailabilityTool];
+const prepareReservationAITool = {
+  type: "function",
+  name: "prepare_reservation_ai",
+  description:
+    "Prepares a proposed reservation for guest confirmation. Use this when the guest wants to book a specific cabin and has provided the cabin number, check-in date, check-out date, and number of guests. This tool does not create a booking.",
+  parameters: {
+    type: "object",
+    properties: {
+      cabinNumber: {
+        type: "integer",
+        description: "Guest-facing cabin number, from 1 to 8.",
+      },
+      startDate: {
+        type: "string",
+        description: "Check-in date in YYYY-MM-DD format.",
+      },
+      endDate: {
+        type: "string",
+        description: "Check-out date in YYYY-MM-DD format.",
+      },
+      numGuests: {
+        type: "integer",
+        description: "Number of guests.",
+      },
+      observations: {
+        type: "string",
+        description: "Optional special requests from the guest.",
+      },
+    },
+    required: ["cabinNumber", "startDate", "endDate", "numGuests"],
+  },
+};
+
+const tools = [
+  getCabinTool,
+  getCabinsTool,
+  checkAvailabilityTool,
+  prepareReservationAITool,
+];
 
 async function getCabinForAI({ cabinNumber }) {
   if (cabinNumber < 1 || cabinNumber > 8) {
@@ -130,6 +168,7 @@ const availableFunctions = {
   get_cabin: getCabinForAI,
   get_cabins: getCabinsForAI,
   check_availability: checkAvailabilityForAI,
+  prepare_reservation_ai: prepareReservationForAI,
 };
 
 function isRetryableAIError(error) {
@@ -202,6 +241,16 @@ async function createInteraction(model, input, previousInteractionId) {
 
       Only say that a cabin is available or unavailable
       based on the result returned by the tool.
+
+      When a guest wants to make a reservation:
+      - Collect the cabin number, check-in date, check-out date,
+        and number of guests.
+      - Use prepare_reservation_ai to prepare a reservation proposal.
+      - Present the returned dates, cabin, guest count, and total price.
+      - Ask the guest to explicitly confirm those exact details.
+      - Never claim that a reservation is confirmed just because
+        the preparation tool succeeded.
+      - Do not treat a tool call as proof of guest consent.
     `,
   });
 }
@@ -240,6 +289,68 @@ async function createAIInteraction(input, previousInteractionId) {
       model: FALLBACK_MODEL,
     };
   }
+}
+
+async function prepareReservationForAI({
+  cabinNumber,
+  startDate,
+  endDate,
+  numGuests,
+  observations = "",
+}) {
+  if (
+    !Number.isInteger(numGuests) ||
+    numGuests < 1 ||
+    typeof observations !== "string"
+  ) {
+    throw new Error("Invalid guest count or observations.");
+  }
+
+  const availability = await checkAvailabilityForAI({
+    cabinNumber,
+    startDate,
+    endDate,
+  });
+
+  const cabin = await getCabinByNumber(cabinNumber);
+
+  if (numGuests > cabin.maxCapacity) {
+    throw new Error(
+      `Cabin ${cabinNumber} can accommodate at most ${cabin.maxCapacity} guests.`,
+    );
+  }
+
+  if (!availability.available) {
+    throw new Error(`Cabin ${cabinNumber} is unavailable for those dates.`);
+  }
+
+  const nights =
+    (Date.parse(`${endDate}T00:00:00Z`) -
+      Date.parse(`${startDate}T00:00:00Z`)) /
+    (24 * 60 * 60 * 1000);
+
+  const nightlyPrice = cabin.regularPrice - cabin.discount;
+  const totalPrice = nights * nightlyPrice;
+
+  if (!Number.isFinite(totalPrice) || totalPrice < 0) {
+    throw new Error("Could not calculate the reservation price.");
+  }
+
+  return {
+    readyForConfirmation: true,
+    booking: {
+      cabinNumber,
+      startDate,
+      endDate,
+      numGuests,
+      numNights: nights,
+      nightlyPrice,
+      totalPrice,
+      observations: observations.slice(0, 1000),
+    },
+    message:
+      "The cabin is available. Show these details to the guest and ask for explicit confirmation. Do not claim a reservation has been created.",
+  };
 }
 
 export async function POST(request) {
