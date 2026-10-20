@@ -2,7 +2,7 @@ import "server-only";
 
 import { auth } from "./auth";
 import { supabase } from "./supabase";
-import { getCabinByNumber } from "./data-service";
+import { checkCabinAvailability, getCabinByNumber } from "./data-service";
 
 function isValidDateString(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -67,29 +67,14 @@ export async function createAIReservation({
     );
   }
 
-  // 4. Check existing bookings on the server.
-  // Keep the existing project's booking filter consistent.
-  const { data: bookings, error: bookingsError } = await supabase
-    .from("bookings")
-    .select("startDate, endDate")
-    .eq("cabinId", cabin.id)
-    .or(
-      "startDate.gte." +
-        new Date().toISOString().slice(0, 10) +
-        ",status.eq.checked-in",
-    );
+  // 4. Check availability using the existing application logic.
+  const isAvailable = await checkCabinAvailability(
+    cabin.id,
+    startDate,
+    endDate,
+  );
 
-  if (bookingsError) {
-    console.error("AI reservation availability check failed:", bookingsError);
-    throw new Error("Could not verify cabin availability. Please try again.");
-  }
-
-  // A guest checks out on the day the next guest may check in.
-  const hasConflict = bookings.some((booking) => {
-    return startDate < booking.endDate && endDate > booking.startDate;
-  });
-
-  if (hasConflict) {
+  if (!isAvailable) {
     throw new Error(
       "This cabin is no longer available for those dates. Please choose different dates.",
     );
