@@ -16,6 +16,106 @@ function isValidDateString(value) {
   );
 }
 
+export async function prepareAIReservation({
+  cabinNumber,
+  startDate,
+  endDate,
+  numGuests,
+  observations = "",
+}) {
+  // 1. Require an authenticated guest.
+  const session = await auth();
+
+  if (!session?.user?.guestId) {
+    throw new Error("Please sign in before making a reservation.");
+  }
+
+  // 2. Validate the basic booking details.
+  if (!Number.isInteger(cabinNumber) || cabinNumber < 1 || cabinNumber > 8) {
+    throw new Error("Please select a valid cabin number.");
+  }
+
+  if (!isValidDateString(startDate) || !isValidDateString(endDate)) {
+    throw new Error("Please provide valid dates in YYYY-MM-DD format.");
+  }
+
+  const today = new Date();
+  const todayString = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  if (startDate < todayString) {
+    throw new Error("Check-in cannot be in the past.");
+  }
+
+  if (endDate <= startDate) {
+    throw new Error("Check-out must be after check-in.");
+  }
+
+  if (!Number.isInteger(numGuests) || numGuests < 1) {
+    throw new Error("Please provide a valid number of guests.");
+  }
+
+  if (typeof observations !== "string" || observations.length > 1000) {
+    throw new Error("Special requests must be 1000 characters or fewer.");
+  }
+
+  // 3. Get authoritative cabin information from Supabase.
+  const cabin = await getCabinByNumber(cabinNumber);
+
+  if (numGuests > cabin.maxCapacity) {
+    throw new Error(
+      `Cabin ${cabinNumber} can accommodate at most ${cabin.maxCapacity} guests.`,
+    );
+  }
+
+  // 4. Check the requested dates using existing application logic.
+  const available = await checkCabinAvailability(cabin.id, startDate, endDate);
+
+  if (!available) {
+    throw new Error(
+      "This cabin is unavailable for those dates. Please choose different dates.",
+    );
+  }
+
+  // 5. Calculate the quote using database prices.
+  const nights =
+    (Date.parse(`${endDate}T00:00:00Z`) -
+      Date.parse(`${startDate}T00:00:00Z`)) /
+    (24 * 60 * 60 * 1000);
+
+  const nightlyPrice = cabin.regularPrice - cabin.discount;
+  const totalPrice = nights * nightlyPrice;
+
+  if (
+    !Number.isInteger(nights) ||
+    nights < 1 ||
+    !Number.isFinite(nightlyPrice) ||
+    nightlyPrice < 0 ||
+    !Number.isFinite(totalPrice)
+  ) {
+    throw new Error("Could not calculate the reservation price.");
+  }
+
+  // 6. Return a proposal only. Do not insert a booking.
+  return {
+    readyForConfirmation: true,
+    booking: {
+      cabinNumber,
+      cabinName: cabin.name,
+      startDate,
+      endDate,
+      numGuests,
+      numNights: nights,
+      nightlyPrice,
+      totalPrice,
+      observations,
+    },
+  };
+}
+
 export async function createAIReservation({
   cabinNumber,
   startDate,

@@ -2,7 +2,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { auth } from "../../_lib/auth";
-import { createAIReservation } from "../../_lib/ai-booking";
+import {
+  prepareAIReservation,
+  createAIReservation,
+} from "../../_lib/ai-booking";
 
 export const runtime = "nodejs";
 
@@ -113,17 +116,26 @@ export async function POST(request) {
     };
 
     if (action === "prepare") {
+      // Validate the reservation and obtain a server-calculated quote.
+      const proposal = await prepareAIReservation({
+        ...bookingDetails,
+        observations,
+      });
+
+      // Sign the details associated with this proposal.
       const token = createConfirmationToken({
         ...bookingDetails,
+        observations,
         guestId: session.user.guestId,
         expiresAt: Date.now() + 5 * 60 * 1000,
       });
 
       return NextResponse.json({
-        message: "Review these details and explicitly confirm to continue.",
+        message:
+          "Review the reservation details and explicitly confirm to continue.",
         confirmationToken: token,
         expiresInSeconds: 300,
-        booking: bookingDetails,
+        booking: proposal.booking,
       });
     }
 
