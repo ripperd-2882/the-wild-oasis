@@ -125,36 +125,59 @@ async function getCabinsForAI() {
 }
 
 async function checkAvailabilityForAI({ cabinNumber, startDate, endDate }) {
-  if (cabinNumber < 1 || cabinNumber > 8) {
-    throw new Error("Invalid cabin number");
+  // 1. Validate the guest-facing cabin number.
+  if (!Number.isInteger(cabinNumber) || cabinNumber < 1 || cabinNumber > 8) {
+    throw new Error("Cabin number must be an integer from 1 to 8.");
   }
 
-  if (!startDate || !endDate) {
-    throw new Error("Start date and end date are required");
+  // 2. Validate the date format.
+  const isValidDateFormat = (date) =>
+    typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date);
+
+  if (!isValidDateFormat(startDate) || !isValidDateFormat(endDate)) {
+    throw new Error("Dates must use YYYY-MM-DD format.");
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // 3. Parse dates as UTC calendar dates.
+  const parseDateOnly = (date) => {
+    const [year, month, day] = date.split("-").map(Number);
 
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+    const parsedDate = new Date(Date.UTC(year, month - 1, day));
 
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    throw new Error("Invalid date format");
+    // Reject dates that JavaScript would otherwise normalize,
+    // such as February 30.
+    if (
+      parsedDate.getUTCFullYear() !== year ||
+      parsedDate.getUTCMonth() !== month - 1 ||
+      parsedDate.getUTCDate() !== day
+    ) {
+      throw new Error(`Invalid calendar date: ${date}`);
+    }
+
+    return parsedDate;
+  };
+
+  parseDateOnly(startDate);
+  parseDateOnly(endDate);
+
+  // 4. Use the UTC calendar date consistently.
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (startDate < today) {
+    throw new Error("The check-in date cannot be in the past.");
   }
 
-  if (start < today) {
-    throw new Error("The check-in date cannot be in the past");
+  if (endDate <= startDate) {
+    throw new Error("The check-out date must be after the check-in date.");
   }
 
-  if (end <= start) {
-    throw new Error("The check-out date must be after the check-in date");
-  }
-
+  // 5. Look up the cabin using its guest-facing number.
   const cabin = await getCabinByNumber(cabinNumber);
 
+  // 6. Ask the existing data-service function to check availability.
   const available = await checkCabinAvailability(cabin.id, startDate, endDate);
 
+  // 7. Return verified data to the AI tool caller.
   return {
     cabinNumber,
     cabinName: cabin.name,
