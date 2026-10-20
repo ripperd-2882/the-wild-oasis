@@ -17,7 +17,7 @@ const ai = new GoogleGenAI({
 });
 
 const PRIMARY_MODEL = "gemini-3.6-flash";
-const FALLBACK_MODEL = "gemini-3.7-flash";
+const FALLBACK_MODEL = "gemini-3.8-flash";
 
 const getCabinTool = {
   type: "function",
