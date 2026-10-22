@@ -59,7 +59,7 @@ function verifyConfirmationToken(token, guestId, booking) {
     return false;
   }
 
-  return (
+  const isValid =
     payload.guestId === guestId &&
     payload.cabinNumber === booking.cabinNumber &&
     payload.startDate === booking.startDate &&
@@ -67,8 +67,11 @@ function verifyConfirmationToken(token, guestId, booking) {
     payload.numGuests === booking.numGuests &&
     payload.observations === booking.observations &&
     typeof payload.expiresAt === "number" &&
-    payload.expiresAt > Date.now()
-  );
+    payload.expiresAt > Date.now() &&
+    payload.quote &&
+    typeof payload.quote.totalPrice === "number";
+
+  return isValid ? payload : null;
 }
 
 export async function POST(request) {
@@ -127,8 +130,8 @@ export async function POST(request) {
       // Sign the details associated with this proposal.
       const token = createConfirmationToken({
         ...bookingDetails,
-        observations,
         guestId: session.user.guestId,
+        quote: proposal.booking,
         expiresAt: Date.now() + 5 * 60 * 1000,
       });
 
@@ -148,19 +151,54 @@ export async function POST(request) {
       );
     }
 
-    if (
-      !verifyConfirmationToken(
-        confirmationToken,
-        session.user.guestId,
-        bookingDetails,
-      )
-    ) {
+    const verifiedPayload = verifyConfirmationToken(
+      confirmationToken,
+      session.user.guestId,
+      bookingDetails,
+    );
+
+    if (!verifiedPayload) {
       return NextResponse.json(
         {
           error:
             "Confirmation is invalid or expired. Please review the booking again.",
         },
         { status: 400 },
+      );
+    }
+
+    // Recalculate the proposal using current server-side data.
+    const currentProposal = await prepareAIReservation({
+      ...bookingDetails,
+      observations,
+    });
+
+    const signedQuote = verifiedPayload.quote;
+    const currentQuote = currentProposal.booking;
+
+    const quoteFields = [
+      "cabinNumber",
+      "cabinName",
+      "startDate",
+      "endDate",
+      "numGuests",
+      "numNights",
+      "nightlyPrice",
+      "totalPrice",
+      "observations",
+    ];
+
+    const quoteMatches = quoteFields.every(
+      (field) => signedQuote[field] === currentQuote[field],
+    );
+
+    if (!quoteMatches) {
+      return NextResponse.json(
+        {
+          error:
+            "The reservation details or price have changed. Please prepare and review the reservation again.",
+        },
+        { status: 409 },
       );
     }
 
