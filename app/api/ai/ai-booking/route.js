@@ -1,11 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { auth } from "../../_lib/auth";
+import { auth } from "../../../_lib/auth";
 import {
   prepareAIReservation,
   createAIReservation,
-} from "../../_lib/ai-booking";
+} from "../../../_lib/ai-booking";
 
 export const runtime = "nodejs";
 
