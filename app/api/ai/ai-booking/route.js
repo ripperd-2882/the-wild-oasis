@@ -26,13 +26,16 @@ function createConfirmationToken(payload) {
 }
 
 function verifyConfirmationToken(token, guestId, booking) {
-  if (typeof token !== "string") return false;
+  if (typeof token !== "string") return null;
 
-  const [encoded, signature] = token.split(".");
-  if (!encoded || !signature) return false;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+
+  const [encoded, signature] = parts;
+  if (!encoded || !signature) return null;
 
   const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) return false;
+  if (!secret) return null;
 
   const expected = createHmac("sha256", secret).update(encoded).digest();
 
@@ -41,14 +44,14 @@ function verifyConfirmationToken(token, guestId, booking) {
   try {
     supplied = Buffer.from(signature, "base64url");
   } catch {
-    return false;
+    return null;
   }
 
   if (
     supplied.length !== expected.length ||
     !timingSafeEqual(supplied, expected)
   ) {
-    return false;
+    return null;
   }
 
   let payload;
@@ -56,10 +59,11 @@ function verifyConfirmationToken(token, guestId, booking) {
   try {
     payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
   } catch {
-    return false;
+    return null;
   }
 
   const isValid =
+    payload &&
     payload.guestId === guestId &&
     payload.cabinNumber === booking.cabinNumber &&
     payload.startDate === booking.startDate &&
@@ -85,7 +89,17 @@ export async function POST(request) {
       );
     }
 
-    const body = await request.json();
+    let body;
+
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON request body." },
+        { status: 400 },
+      );
+    }
+
     const {
       action,
       cabinNumber,
@@ -94,7 +108,7 @@ export async function POST(request) {
       numGuests,
       observations = "",
       confirmationToken,
-    } = body;
+    } = body ?? {};
 
     if (
       !Number.isInteger(cabinNumber) ||
@@ -104,7 +118,8 @@ export async function POST(request) {
       numGuests < 1 ||
       typeof startDate !== "string" ||
       typeof endDate !== "string" ||
-      typeof observations !== "string"
+      typeof observations !== "string" ||
+      observations.length > 1000
     ) {
       return NextResponse.json(
         { error: "Invalid booking details." },
@@ -120,14 +135,12 @@ export async function POST(request) {
       observations,
     };
 
+    // STEP 1: Prepare the reservation without creating a database booking.
     if (action === "prepare") {
-      // Validate the reservation and obtain a server-calculated quote.
       const proposal = await prepareAIReservation({
         ...bookingDetails,
-        observations,
       });
 
-      // Sign the details associated with this proposal.
       const token = createConfirmationToken({
         ...bookingDetails,
         guestId: session.user.guestId,
@@ -151,6 +164,7 @@ export async function POST(request) {
       );
     }
 
+    // STEP 2: Verify the original signed token.
     const verifiedPayload = verifyConfirmationToken(
       confirmationToken,
       session.user.guestId,
@@ -167,10 +181,9 @@ export async function POST(request) {
       );
     }
 
-    // Recalculate the proposal using current server-side data.
+    // STEP 3: Revalidate availability, capacity, and current price.
     const currentProposal = await prepareAIReservation({
       ...bookingDetails,
-      observations,
     });
 
     const signedQuote = verifiedPayload.quote;
@@ -202,9 +215,9 @@ export async function POST(request) {
       );
     }
 
+    // STEP 4: Create the booking only after successful verification.
     const result = await createAIReservation({
       ...bookingDetails,
-      observations,
     });
 
     return NextResponse.json({
