@@ -122,6 +122,7 @@ export async function createAIReservation({
   endDate,
   numGuests,
   observations = "",
+  confirmationId,
 }) {
   // 1. Identify the authenticated guest on the server.
   const session = await auth();
@@ -130,7 +131,37 @@ export async function createAIReservation({
     throw new Error("Please sign in before making a reservation.");
   }
 
-  // 2. Validate the request.
+  // 2. Prevent the same confirmation request from creating a duplicate booking.
+  if (typeof confirmationId !== "string" || !confirmationId) {
+    throw new Error("Invalid booking confirmation identifier.");
+  }
+
+  const { data: existingBooking, error: lookupError } = await supabase
+    .from("bookings")
+    .select(
+      "id, guestId, cabinId, startDate, endDate, numNights, numGuests, totalPrice, status",
+    )
+    .eq("confirmationId", confirmationId)
+    .maybeSingle();
+
+  if (lookupError) {
+    console.error("Booking lookup failed:", lookupError);
+    throw new Error("Could not verify the booking confirmation.");
+  }
+
+  if (existingBooking) {
+    if (existingBooking.guestId !== session.user.guestId) {
+      throw new Error("Invalid booking confirmation.");
+    }
+
+    return {
+      booking: existingBooking,
+      cabinNumber,
+      alreadyCreated: true,
+    };
+  }
+
+  // 3. Validate the request.
   if (!Number.isInteger(cabinNumber) || cabinNumber < 1 || cabinNumber > 8) {
     throw new Error("Please select a valid cabin number.");
   }
@@ -158,7 +189,7 @@ export async function createAIReservation({
     throw new Error("Invalid observations.");
   }
 
-  // 3. Get authoritative cabin details from Supabase.
+  // 4. Get authoritative cabin details from Supabase.
   const cabin = await getCabinByNumber(cabinNumber);
 
   if (numGuests > cabin.maxCapacity) {
@@ -167,7 +198,7 @@ export async function createAIReservation({
     );
   }
 
-  // 4. Check availability using the existing application logic.
+  // 5. Check availability using the existing application logic.
   const isAvailable = await checkCabinAvailability(
     cabin.id,
     startDate,
@@ -180,7 +211,7 @@ export async function createAIReservation({
     );
   }
 
-  // 5. Calculate the price from trusted database values.
+  // 6. Calculate the price from trusted database values.
   const nights =
     (Date.parse(`${endDate}T00:00:00Z`) -
       Date.parse(`${startDate}T00:00:00Z`)) /
@@ -194,8 +225,9 @@ export async function createAIReservation({
 
   const totalPrice = nights * nightlyPrice;
 
-  // 6. Create the reservation for the authenticated guest.
+  // 7. Create the reservation for the authenticated guest.
   const newBooking = {
+    confirmationId,
     cabinId: cabin.id,
     guestId: session.user.guestId,
     startDate,
