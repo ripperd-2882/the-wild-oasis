@@ -252,6 +252,38 @@ export async function createAIReservation({
     .single();
 
   if (error) {
+    // PostgreSQL error 23505 means a unique constraint was violated.
+    if (error.code === "23505") {
+      const { data: duplicateBooking, error: duplicateLookupError } =
+        await supabase
+          .from("bookings")
+          .select(
+            "id, guestId, cabinId, startDate, endDate, numNights, numGuests, totalPrice, status",
+          )
+          .eq("confirmationId", confirmationId)
+          .maybeSingle();
+
+      if (duplicateLookupError) {
+        console.error(
+          "Could not retrieve the existing booking:",
+          duplicateLookupError,
+        );
+        throw new Error("Could not verify the booking confirmation.");
+      }
+
+      if (duplicateBooking) {
+        if (duplicateBooking.guestId !== session.user.guestId) {
+          throw new Error("Invalid booking confirmation.");
+        }
+
+        return {
+          booking: duplicateBooking,
+          cabinNumber,
+          alreadyCreated: true,
+        };
+      }
+    }
+
     console.error("AI reservation creation failed:", error);
     throw new Error("The reservation could not be created. Please try again.");
   }

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { auth } from "../../../_lib/auth";
@@ -6,6 +6,7 @@ import {
   prepareAIReservation,
   createAIReservation,
 } from "../../../_lib/ai-booking";
+import { supabase } from "../../../_lib/supabase";
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,12 @@ function createConfirmationToken(payload) {
   return `${encoded}.${signature}`;
 }
 
-function verifyConfirmationToken(token, guestId, booking) {
+function verifyConfirmationToken(
+  token,
+  guestId,
+  booking,
+  allowExpired = false,
+) {
   if (typeof token !== "string") return null;
 
   const parts = token.split(".");
@@ -71,7 +77,7 @@ function verifyConfirmationToken(token, guestId, booking) {
     payload.numGuests === booking.numGuests &&
     payload.observations === booking.observations &&
     typeof payload.expiresAt === "number" &&
-    payload.expiresAt > Date.now() &&
+    (allowExpired || payload.expiresAt > Date.now()) &&
     payload.quote &&
     typeof payload.quote.totalPrice === "number";
 
@@ -165,10 +171,12 @@ export async function POST(request) {
     }
 
     // STEP 2: Verify the original signed token.
+
     const verifiedPayload = verifyConfirmationToken(
       confirmationToken,
       session.user.guestId,
       bookingDetails,
+      true, // Verify the token even if it has expired.
     );
 
     if (!verifiedPayload) {
@@ -181,7 +189,59 @@ export async function POST(request) {
       );
     }
 
-    // STEP 3: Revalidate availability, capacity, and current price.
+    // Derive a stable identifier from the signed confirmation token.
+    const confirmationId = createHash("sha256")
+      .update(confirmationToken)
+      .digest("hex");
+
+    // First, check whether this confirmation already created a booking.
+    const { data: existingBooking, error: lookupError } = await supabase
+      .from("bookings")
+      .select(
+        "id, guestId, cabinId, startDate, endDate, numNights, numGuests, totalPrice, status",
+      )
+      .eq("confirmationId", confirmationId)
+      .maybeSingle();
+
+    if (lookupError) {
+      console.error("Existing booking lookup failed:", lookupError);
+
+      return NextResponse.json(
+        { error: "Could not verify the booking confirmation." },
+        { status: 500 },
+      );
+    }
+
+    if (existingBooking) {
+      if (existingBooking.guestId !== session.user.guestId) {
+        return NextResponse.json(
+          { error: "Invalid booking confirmation." },
+          { status: 400 },
+        );
+      }
+
+      // A previous request already created this booking.
+      return NextResponse.json({
+        message: "Reservation was already created.",
+        booking: existingBooking,
+        cabinNumber,
+        alreadyCreated: true,
+      });
+    }
+
+    // An expired token may retrieve an existing booking, but it must not
+    // create a new booking.
+    if (verifiedPayload.expiresAt <= Date.now()) {
+      return NextResponse.json(
+        {
+          error:
+            "Confirmation has expired. Please prepare and review the reservation again.",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Revalidate availability, capacity, and current price for a new booking.
     const currentProposal = await prepareAIReservation({
       ...bookingDetails,
     });
@@ -215,13 +275,16 @@ export async function POST(request) {
       );
     }
 
-    // STEP 4: Create the booking only after successful verification.
+    // Create the booking only after all verification succeeds.
     const result = await createAIReservation({
       ...bookingDetails,
+      confirmationId,
     });
 
     return NextResponse.json({
-      message: "Reservation created successfully.",
+      message: result.alreadyCreated
+        ? "Reservation was already created."
+        : "Reservation created successfully.",
       ...result,
     });
   } catch (error) {
