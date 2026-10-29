@@ -252,6 +252,16 @@ export async function createAIReservation({
     .single();
 
   if (error) {
+    // PostgreSQL error 23P01 means the exclusion constraint was violated.
+    if (error.code === "23P01") {
+      const conflictError = new Error(
+        "This cabin is no longer available for those dates. Please choose different dates.",
+      );
+
+      conflictError.code = "23P01";
+      throw conflictError;
+    }
+
     // PostgreSQL error 23505 means a unique constraint was violated.
     if (error.code === "23505") {
       const { data: duplicateBooking, error: duplicateLookupError } =

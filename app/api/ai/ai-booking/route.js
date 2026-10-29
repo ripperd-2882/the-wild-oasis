@@ -288,6 +288,10 @@ export async function POST(request) {
       ...result,
     });
   } catch (error) {
+    if (error.code === "23P01") {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+
     console.error("AI booking API error:", error);
 
     return NextResponse.json(
