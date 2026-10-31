@@ -1,3 +1,11 @@
+import { NextResponse } from "next/server";
+
+import {
+  AI_SESSION_COOKIE,
+  getOrCreateAISession,
+  updateGeminiInteractionId,
+} from "../../_lib/ai-session";
+
 import { GoogleGenAI } from "@google/genai";
 
 import {
@@ -378,44 +386,41 @@ async function prepareReservationForAI({
 
 export async function POST(request) {
   try {
-    const { message, conversationId } = await request.json();
+    const { message } = await request.json();
 
-    console.log("Conversation ID:", conversationId);
-    console.log("Message:", message);
-
-    let input;
-    let previousInteractionId = conversationId;
-
-    // First message in a conversation
-    if (!conversationId) {
-      input = [
-        {
-          type: "user_input",
-          content: [
-            {
-              type: "text",
-              text: message,
-            },
-          ],
-        },
-      ];
-    } else {
-      // Follow-up message
-      input = [
-        {
-          type: "user_input",
-          content: [
-            {
-              type: "text",
-              text: message,
-            },
-          ],
-        },
-      ];
+    // 1. Validate the incoming message.
+    if (typeof message !== "string" || !message.trim()) {
+      return NextResponse.json(
+        { error: "A valid message is required." },
+        { status: 400 },
+      );
     }
+
+    // 2. Read the visitor's anonymous session cookie.
+    const sessionToken = request.cookies.get(AI_SESSION_COOKIE)?.value;
+
+    // 3. Retrieve an existing session or create a new one.
+    const session = await getOrCreateAISession(sessionToken);
+
+    // 4. Get the Gemini interaction ID from our database.
+    let previousInteractionId = session.geminiInteractionId;
+
+    // 5. Prepare the user's message for Gemini.
+    let input = [
+      {
+        type: "user_input",
+        content: [
+          {
+            type: "text",
+            text: message,
+          },
+        ],
+      },
+    ];
 
     let interaction;
 
+    // 6. Continue the Gemini interaction and handle tool calls.
     while (true) {
       const result = await createAIInteraction(input, previousInteractionId);
 
@@ -463,35 +468,50 @@ export async function POST(request) {
         });
       }
 
-      // No function calls means Gemini has
-      // produced the final answer.
+      // No function calls means Gemini has produced its final answer.
       if (functionResults.length === 0) {
         break;
       }
 
       // Send the tool results back to Gemini.
-      // The previous interaction contains the
-      // conversation and the function call.
       input = functionResults;
 
       previousInteractionId = interaction.id;
     }
 
-    return Response.json({
+    // 7. Save the latest Gemini interaction ID against this session.
+    await updateGeminiInteractionId(session.sessionId, interaction.id);
+
+    // 8. Return the reply without exposing the Gemini interaction ID.
+    const response = NextResponse.json({
       reply: interaction.output_text,
-      conversationId: interaction.id,
     });
+
+    // 9. Set the visitor's cookie only when creating a new session.
+    if (session.isNew) {
+      response.cookies.set({
+        name: AI_SESSION_COOKIE,
+        value: session.sessionToken,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+    }
+
+    return response;
   } catch (error) {
     console.error("AI API Error:", error);
 
-    return Response.json(
+    const status = error.status || 500;
+
+    return NextResponse.json(
       {
         error: error.message || "Something went wrong while talking to the AI.",
-        status: error.status || 500,
+        status,
       },
-      {
-        status: error.status || 500,
-      },
+      { status },
     );
   }
 }
