@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkRateLimit } from "../../_lib/rate-limit";
+import { checkRateLimit } from "../../_lib/ai-rate-limit";
 
 import {
   AI_SESSION_COOKIE,
@@ -386,14 +386,28 @@ async function prepareReservationForAI({
   };
 }
 
+const MAX_MESSAGE_LENGTH = 1000;
+
 export async function POST(request) {
   try {
     const { message } = await request.json();
 
     // 1. Validate the incoming message.
-    if (typeof message !== "string" || !message.trim()) {
+
+    // Check whether message is a valid, non-empty string.
+    if (typeof message !== "string" || message.trim().length === 0) {
       return NextResponse.json(
-        { error: "A valid message is required." },
+        { error: "Message is required." },
+        { status: 400 },
+      );
+    }
+
+    // Check whether message exceeds the maximum allowed length.
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      return NextResponse.json(
+        {
+          error: `Message cannot exceed ${MAX_MESSAGE_LENGTH} characters.`,
+        },
         { status: 400 },
       );
     }
