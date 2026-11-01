@@ -390,6 +390,17 @@ const MAX_MESSAGE_LENGTH = 1000;
 
 export async function POST(request) {
   try {
+    // Check the origin of the incoming request.
+    const origin = request.headers.get("origin");
+    const allowedOrigin = process.env.APP_ORIGIN;
+
+    if (!origin || origin !== allowedOrigin) {
+      return NextResponse.json(
+        { error: "Forbidden: Invalid request origin." },
+        { status: 403 },
+      );
+    }
+
     const { message } = await request.json();
 
     // 1. Validate the incoming message.
@@ -538,14 +549,22 @@ export async function POST(request) {
   } catch (error) {
     console.error("AI API Error:", error);
 
-    const status = error.status || 500;
+    const status = [429, 503].includes(error.status)
+      ? error.status
+      : error.name === "TimeoutError"
+        ? 504
+        : 500;
 
-    return NextResponse.json(
-      {
-        error: error.message || "Something went wrong while talking to the AI.",
-        status,
-      },
-      { status },
-    );
+    let message = "Something went wrong. Please try again.";
+
+    if (status === 429) {
+      message = "The AI service is busy. Please try again later.";
+    } else if (status === 503) {
+      message = "The AI service is temporarily unavailable.";
+    } else if (status === 504) {
+      message = "The AI request timed out. Please try again.";
+    }
+
+    return NextResponse.json({ error: message }, { status });
   }
 }
