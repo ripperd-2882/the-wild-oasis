@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkRateLimit } from "../../_lib/rate-limit";
 
 import {
   AI_SESSION_COOKIE,
@@ -403,7 +404,25 @@ export async function POST(request) {
     // 3. Retrieve an existing session or create a new one.
     const session = await getOrCreateAISession(sessionToken);
 
-    // 4. Get the Gemini interaction ID from our database.
+    // 4. Check whether this session has exceeded its request limit.
+    const rateLimit = checkRateLimit(session.sessionId);
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "Too many requests. Please try again later.",
+          retryAfter: rateLimit.retryAfter,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfter),
+          },
+        },
+      );
+    }
+
+    // 5. Get the Gemini interaction ID from our database.
     let previousInteractionId = session.geminiInteractionId;
 
     // 5. Prepare the user's message for Gemini.
