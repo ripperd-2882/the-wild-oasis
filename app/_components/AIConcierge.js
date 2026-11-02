@@ -11,6 +11,7 @@ export default function AIConcierge() {
   const [bookingStatus, setBookingStatus] = useState({});
   const [preparedBookings, setPreparedBookings] = useState({});
   const [bookingErrors, setBookingErrors] = useState({});
+  const [bookingResults, setBookingResults] = useState({});
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -126,6 +127,94 @@ export default function AIConcierge() {
     }
   }
 
+  async function handleConfirmBooking(proposal, index) {
+    const prepared = preparedBookings[index];
+
+    if (!prepared?.confirmationToken) {
+      setBookingErrors((prev) => ({
+        ...prev,
+        [index]: "Please prepare the reservation again.",
+      }));
+      return;
+    }
+
+    // Check the five-minute token expiry on the frontend.
+    const elapsedSeconds = (Date.now() - prepared.preparedAt) / 1000;
+
+    if (elapsedSeconds >= prepared.expiresInSeconds) {
+      setBookingStatus((prev) => ({
+        ...prev,
+        [index]: "error",
+      }));
+
+      setPreparedBookings((prev) => ({
+        ...prev,
+        [index]: null,
+      }));
+
+      setBookingErrors((prev) => ({
+        ...prev,
+        [index]: "Your confirmation has expired. Please prepare again.",
+      }));
+
+      return;
+    }
+
+    setBookingStatus((prev) => ({
+      ...prev,
+      [index]: "confirming",
+    }));
+
+    setBookingErrors((prev) => ({
+      ...prev,
+      [index]: "",
+    }));
+
+    try {
+      const response = await fetch("/api/ai/ai-booking", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "confirm",
+          cabinNumber: proposal.cabinNumber,
+          startDate: proposal.startDate,
+          endDate: proposal.endDate,
+          numGuests: proposal.numGuests,
+          observations: proposal.observations || "",
+          confirmationToken: prepared.confirmationToken,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not confirm reservation.");
+      }
+
+      setBookingResults((prev) => ({
+        ...prev,
+        [index]: data,
+      }));
+
+      setBookingStatus((prev) => ({
+        ...prev,
+        [index]: "confirmed",
+      }));
+    } catch (error) {
+      setBookingErrors((prev) => ({
+        ...prev,
+        [index]: error.message,
+      }));
+
+      setBookingStatus((prev) => ({
+        ...prev,
+        [index]: "error",
+      }));
+    }
+  }
+
   return (
     <div className="fixed bottom-6 right-6 z-50">
       {/* Expanded chatbot window */}
@@ -202,6 +291,50 @@ export default function AIConcierge() {
                       <p className="font-semibold mt-2">
                         Total: ${msg.reservationProposal.totalPrice}
                       </p>
+
+                      {bookingStatus[index] === "confirmed" ? (
+                        <div className="mt-4 bg-green-900/30 border border-green-500 rounded-lg p-3">
+                          <p className="text-green-400 font-semibold">
+                            Reservation confirmed!
+                          </p>
+
+                          <p className="text-sm mt-2">
+                            {bookingResults[index]?.message}
+                          </p>
+
+                          <p className="text-xs text-primary-300 mt-2">
+                            Your reservation has been created successfully.
+                          </p>
+                        </div>
+                      ) : bookingStatus[index] === "prepared" ||
+                        bookingStatus[index] === "confirming" ? (
+                        <div className="mt-4 space-y-3">
+                          <p className="text-green-400 text-sm font-semibold">
+                            Booking details verified!
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleConfirmBooking(
+                                msg.reservationProposal,
+                                index,
+                              )
+                            }
+                            disabled={bookingStatus[index] === "confirming"}
+                            className="w-full bg-accent-500 text-primary-950 px-4 py-3 rounded-lg font-semibold disabled:opacity-50"
+                          >
+                            {bookingStatus[index] === "confirming"
+                              ? "Confirming reservation..."
+                              : "Confirm reservation"}
+                          </button>
+
+                          <p className="text-xs text-primary-300">
+                            Clicking Confirm reservation will create your
+                            booking.
+                          </p>
+                        </div>
+                      ) : null}
 
                       {bookingStatus[index] === "prepared" ? (
                         <div className="mt-4 space-y-2">
