@@ -8,6 +8,9 @@ export default function AIConcierge() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [bookingStatus, setBookingStatus] = useState({});
+  const [preparedBookings, setPreparedBookings] = useState({});
+  const [bookingErrors, setBookingErrors] = useState({});
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -51,6 +54,75 @@ export default function AIConcierge() {
       setError(error.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePrepareBooking(proposal, index) {
+    setBookingStatus((prev) => ({
+      ...prev,
+      [index]: "loading",
+    }));
+
+    setBookingErrors((prev) => ({
+      ...prev,
+      [index]: "",
+    }));
+
+    try {
+      const response = await fetch("/api/ai/ai-booking", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "prepare",
+          cabinNumber: proposal.cabinNumber,
+          startDate: proposal.startDate,
+          endDate: proposal.endDate,
+          numGuests: proposal.numGuests,
+          observations: proposal.observations || "",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        setBookingStatus((prev) => ({
+          ...prev,
+          [index]: "authentication_required",
+        }));
+
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not prepare reservation.");
+      }
+
+      setPreparedBookings((prev) => ({
+        ...prev,
+        [index]: {
+          confirmationToken: data.confirmationToken,
+          booking: data.booking,
+          expiresInSeconds: data.expiresInSeconds,
+          preparedAt: Date.now(),
+        },
+      }));
+
+      setBookingStatus((prev) => ({
+        ...prev,
+        [index]: "prepared",
+      }));
+    } catch (error) {
+      setBookingErrors((prev) => ({
+        ...prev,
+        [index]: error.message,
+      }));
+
+      setBookingStatus((prev) => ({
+        ...prev,
+        [index]: "error",
+      }));
     }
   }
 
@@ -130,6 +202,53 @@ export default function AIConcierge() {
                       <p className="font-semibold mt-2">
                         Total: ${msg.reservationProposal.totalPrice}
                       </p>
+
+                      {bookingStatus[index] === "prepared" ? (
+                        <div className="mt-4 space-y-2">
+                          <p className="text-green-400 font-semibold">
+                            Booking details verified!
+                          </p>
+
+                          <p className="text-xs text-primary-300">
+                            Your confirmation token is ready. No reservation has
+                            been created yet.
+                          </p>
+                        </div>
+                      ) : bookingStatus[index] === "authentication_required" ? (
+                        <div className="mt-4 space-y-2">
+                          <p className="text-sm text-yellow-400">
+                            Please sign in with Google before proceeding.
+                          </p>
+
+                          <a
+                            href="/login"
+                            className="inline-block bg-accent-500 text-primary-950 px-4 py-2 rounded-lg font-semibold"
+                          >
+                            Sign in to continue
+                          </a>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handlePrepareBooking(msg.reservationProposal, index)
+                          }
+                          disabled={bookingStatus[index] === "loading"}
+                          className="mt-4 w-full bg-accent-500 text-primary-950 px-4 py-3 rounded-lg font-semibold disabled:opacity-50"
+                        >
+                          {bookingStatus[index] === "loading"
+                            ? "Verifying reservation..."
+                            : bookingStatus[index] === "error"
+                              ? "Try again"
+                              : "Continue to booking"}
+                        </button>
+                      )}
+
+                      {bookingErrors[index] && (
+                        <p className="text-sm text-red-400 mt-2">
+                          {bookingErrors[index]}
+                        </p>
+                      )}
 
                       <p className="text-xs text-primary-300 mt-2">
                         This is a proposal, not a confirmed reservation.
