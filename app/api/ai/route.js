@@ -389,6 +389,8 @@ async function prepareReservationForAI({
 const MAX_MESSAGE_LENGTH = 1000;
 
 export async function POST(request) {
+  const requestStartedAt = performance.now();
+
   try {
     // Check the origin of the incoming request.
     const origin = request.headers.get("origin");
@@ -468,7 +470,15 @@ export async function POST(request) {
 
     // 6. Continue the Gemini interaction and handle tool calls.
     while (true) {
+      const geminiStartedAt = performance.now();
+
       const result = await createAIInteraction(input, previousInteractionId);
+
+      console.info(
+        `[AI Timing] Gemini interaction: ${Math.round(
+          performance.now() - geminiStartedAt,
+        )} ms | Model: ${result.model}`,
+      );
 
       interaction = result.interaction;
 
@@ -487,6 +497,8 @@ export async function POST(request) {
 
         let toolResult;
 
+        const toolStartedAt = performance.now();
+
         try {
           const data = await functionToCall(step.arguments);
 
@@ -500,6 +512,12 @@ export async function POST(request) {
             error: error.message || "The tool could not complete the request.",
           };
         }
+
+        console.info(
+          `[AI Timing] Tool: ${step.name} | Duration: ${Math.round(
+            performance.now() - toolStartedAt,
+          )} ms | Success: ${toolResult.success}`,
+        );
 
         // Capture the structured reservation proposal for the frontend.
         if (step.name === "prepare_reservation_ai") {
@@ -535,6 +553,12 @@ export async function POST(request) {
     // 7. Save the latest Gemini interaction ID against this session.
     await updateGeminiInteractionId(session.sessionId, interaction.id);
 
+    console.info(
+      `[AI Timing] Total API request: ${Math.round(
+        performance.now() - requestStartedAt,
+      )} ms`,
+    );
+
     // 8. Return the reply without exposing the Gemini interaction ID.
     const response = NextResponse.json({
       reply: interaction.output_text,
@@ -556,6 +580,12 @@ export async function POST(request) {
 
     return response;
   } catch (error) {
+    console.info(
+      `[AI Timing] Failed API request: ${Math.round(
+        performance.now() - requestStartedAt,
+      )} ms`,
+    );
+
     console.error("AI API Error:", error);
 
     const status = [429, 503].includes(error.status)
