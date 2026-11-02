@@ -3,6 +3,7 @@ import { Josefin_Sans } from "next/font/google";
 import "@/app/_styles/globals.css";
 import Header from "./_components/Header";
 import { ReservationProvider } from "./_components/ReservationsContext";
+import AIConcierge from "./_components/AIConcierge";
 
 const josafin = Josefin_Sans({
   subsets: ["latin"],
@@ -36,6 +37,8 @@ export default function RootLayout({ children }) {
             </ReservationProvider>
           </main>
         </div>
+
+        <AIConcierge />
       </body>
     </html>
   );

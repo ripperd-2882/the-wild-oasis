@@ -61,7 +61,7 @@ const checkAvailabilityTool = {
   type: "function",
   name: "check_availability",
   description:
-    "Checks whether a specific cabin is available for a guest's requested date range. Use this whenever the guest asks whether a cabin is available or can be booked for specific dates.",
+    "Checks whether a specific cabin is available for a guest's requested date range. Use this when the guest only wants to check availability and is not yet asking to prepare a reservation. If the guest wants to book and has provided all required booking details, use prepare_reservation_ai directly instead.",
   parameters: {
     type: "object",
     properties: {
@@ -266,9 +266,20 @@ async function createInteraction(model, input, previousInteractionId) {
       or wants to compare cabins, prices, capacity,
       or other cabin information, use the get_cabins tool.
 
-      When a guest asks whether a cabin is available
-      for specific dates, always use the
+      When a guest only wants to check whether a cabin
+      is available for specific dates, use the
       check_availability tool.
+
+      When a guest wants to make a reservation and has
+      provided the cabin number, check-in date,
+      check-out date, and number of guests:
+
+      - Use prepare_reservation_ai directly.
+      - Do not call check_availability separately first.
+      - The prepare_reservation_ai tool already checks
+        availability, capacity, dates, and price.
+      - If any required booking details are missing,
+        ask the guest for them before preparing the reservation.
 
       Never guess or assume availability.
 
@@ -389,6 +400,8 @@ async function prepareReservationForAI({
 const MAX_MESSAGE_LENGTH = 1000;
 
 export async function POST(request) {
+  const requestStartedAt = performance.now();
+
   try {
     // Check the origin of the incoming request.
     const origin = request.headers.get("origin");
@@ -464,10 +477,19 @@ export async function POST(request) {
     ];
 
     let interaction;
+    let reservationProposal = null;
 
     // 6. Continue the Gemini interaction and handle tool calls.
     while (true) {
+      const geminiStartedAt = performance.now();
+
       const result = await createAIInteraction(input, previousInteractionId);
+
+      console.info(
+        `[AI Timing] Gemini interaction: ${Math.round(
+          performance.now() - geminiStartedAt,
+        )} ms | Model: ${result.model}`,
+      );
 
       interaction = result.interaction;
 
@@ -486,6 +508,8 @@ export async function POST(request) {
 
         let toolResult;
 
+        const toolStartedAt = performance.now();
+
         try {
           const data = await functionToCall(step.arguments);
 
@@ -498,6 +522,19 @@ export async function POST(request) {
             success: false,
             error: error.message || "The tool could not complete the request.",
           };
+        }
+
+        console.info(
+          `[AI Timing] Tool: ${step.name} | Duration: ${Math.round(
+            performance.now() - toolStartedAt,
+          )} ms | Success: ${toolResult.success}`,
+        );
+
+        // Capture the structured reservation proposal for the frontend.
+        if (step.name === "prepare_reservation_ai") {
+          reservationProposal = toolResult.success
+            ? toolResult.data.booking
+            : null;
         }
 
         functionResults.push({
@@ -527,9 +564,16 @@ export async function POST(request) {
     // 7. Save the latest Gemini interaction ID against this session.
     await updateGeminiInteractionId(session.sessionId, interaction.id);
 
+    console.info(
+      `[AI Timing] Total API request: ${Math.round(
+        performance.now() - requestStartedAt,
+      )} ms`,
+    );
+
     // 8. Return the reply without exposing the Gemini interaction ID.
     const response = NextResponse.json({
       reply: interaction.output_text,
+      reservationProposal,
     });
 
     // 9. Set the visitor's cookie only when creating a new session.
@@ -547,6 +591,12 @@ export async function POST(request) {
 
     return response;
   } catch (error) {
+    console.info(
+      `[AI Timing] Failed API request: ${Math.round(
+        performance.now() - requestStartedAt,
+      )} ms`,
+    );
+
     console.error("AI API Error:", error);
 
     const status = [429, 503].includes(error.status)
