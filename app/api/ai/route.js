@@ -464,6 +464,7 @@ export async function POST(request) {
     ];
 
     let interaction;
+    let reservationProposal = null;
 
     // 6. Continue the Gemini interaction and handle tool calls.
     while (true) {
@@ -500,6 +501,13 @@ export async function POST(request) {
           };
         }
 
+        // Capture the structured reservation proposal for the frontend.
+        if (step.name === "prepare_reservation_ai") {
+          reservationProposal = toolResult.success
+            ? toolResult.data.booking
+            : null;
+        }
+
         functionResults.push({
           type: "function_result",
           name: step.name,
@@ -530,6 +538,7 @@ export async function POST(request) {
     // 8. Return the reply without exposing the Gemini interaction ID.
     const response = NextResponse.json({
       reply: interaction.output_text,
+      reservationProposal,
     });
 
     // 9. Set the visitor's cookie only when creating a new session.
