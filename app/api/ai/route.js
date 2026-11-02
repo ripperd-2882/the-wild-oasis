@@ -61,7 +61,7 @@ const checkAvailabilityTool = {
   type: "function",
   name: "check_availability",
   description:
-    "Checks whether a specific cabin is available for a guest's requested date range. Use this whenever the guest asks whether a cabin is available or can be booked for specific dates.",
+    "Checks whether a specific cabin is available for a guest's requested date range. Use this when the guest only wants to check availability and is not yet asking to prepare a reservation. If the guest wants to book and has provided all required booking details, use prepare_reservation_ai directly instead.",
   parameters: {
     type: "object",
     properties: {
@@ -266,9 +266,20 @@ async function createInteraction(model, input, previousInteractionId) {
       or wants to compare cabins, prices, capacity,
       or other cabin information, use the get_cabins tool.
 
-      When a guest asks whether a cabin is available
-      for specific dates, always use the
+      When a guest only wants to check whether a cabin
+      is available for specific dates, use the
       check_availability tool.
+
+      When a guest wants to make a reservation and has
+      provided the cabin number, check-in date,
+      check-out date, and number of guests:
+
+      - Use prepare_reservation_ai directly.
+      - Do not call check_availability separately first.
+      - The prepare_reservation_ai tool already checks
+        availability, capacity, dates, and price.
+      - If any required booking details are missing,
+        ask the guest for them before preparing the reservation.
 
       Never guess or assume availability.
 
