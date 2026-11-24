@@ -2,6 +2,32 @@
 
 import { useState } from "react";
 
+function formatDate(dateString) {
+  if (!dateString) return "—";
+
+  // Avoid timezone-related date shifts for YYYY-MM-DD values.
+  const [year, month, day] = dateString.split("-").map(Number);
+
+  const date = new Date(year, month - 1, day);
+
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatPrice(amount) {
+  if (amount == null || !Number.isFinite(Number(amount))) {
+    return "—";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(amount));
+}
+
 export default function AIConcierge() {
   const [isOpen, setIsOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -293,18 +319,116 @@ export default function AIConcierge() {
                       </p>
 
                       {bookingStatus[index] === "confirmed" ? (
-                        <div className="mt-4 bg-green-900/30 border border-green-500 rounded-lg p-3">
-                          <p className="text-green-400 font-semibold">
-                            Reservation confirmed!
-                          </p>
+                        <div className="mt-4 bg-green-900/30 border border-green-500 rounded-lg p-4 space-y-3">
+                          {(() => {
+                            const result = bookingResults[index];
+                            const booking = result?.booking;
 
-                          <p className="text-sm mt-2">
-                            {bookingResults[index]?.message}
-                          </p>
+                            if (!booking) {
+                              return (
+                                <p className="text-red-400">
+                                  Booking was created, but booking details could
+                                  not be displayed.
+                                </p>
+                              );
+                            }
 
-                          <p className="text-xs text-primary-300 mt-2">
-                            Your reservation has been created successfully.
-                          </p>
+                            return (
+                              <>
+                                {/* Success heading */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-green-400 font-semibold text-base">
+                                    Booking created!
+                                  </p>
+
+                                  <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full">
+                                    {booking.status || "Unknown"}
+                                  </span>
+                                </div>
+
+                                <p className="text-xs text-primary-300">
+                                  {result.message}
+                                </p>
+
+                                {/* Booking ID */}
+                                <div className="border-b border-primary-700 pb-3">
+                                  <p className="text-xs text-primary-300">
+                                    Booking ID
+                                  </p>
+                                  <p className="font-semibold break-all">
+                                    {booking.id ?? "—"}
+                                  </p>
+                                </div>
+
+                                {/* Cabin details */}
+                                <div>
+                                  <p className="text-xs text-primary-300">
+                                    Cabin
+                                  </p>
+                                  <p className="font-semibold">
+                                    {msg.reservationProposal.cabinName ||
+                                      `Cabin ${result.cabinNumber ?? booking.cabinId ?? ""}`}
+                                  </p>
+                                  <p className="text-sm text-primary-300">
+                                    Cabin number: {result.cabinNumber ?? "—"}
+                                  </p>
+                                </div>
+
+                                {/* Stay details */}
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <p className="text-xs text-primary-300">
+                                      Check-in
+                                    </p>
+                                    <p className="font-medium">
+                                      {formatDate(booking.startDate)}
+                                    </p>
+                                  </div>
+
+                                  <div>
+                                    <p className="text-xs text-primary-300">
+                                      Check-out
+                                    </p>
+                                    <p className="font-medium">
+                                      {formatDate(booking.endDate)}
+                                    </p>
+                                  </div>
+
+                                  <div>
+                                    <p className="text-xs text-primary-300">
+                                      Guests
+                                    </p>
+                                    <p className="font-medium">
+                                      {booking.numGuests ?? "—"}
+                                    </p>
+                                  </div>
+
+                                  <div>
+                                    <p className="text-xs text-primary-300">
+                                      Nights
+                                    </p>
+                                    <p className="font-medium">
+                                      {booking.numNights ?? "—"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Total price */}
+                                <div className="border-t border-primary-700 pt-3 flex justify-between items-center">
+                                  <p className="font-semibold">Total price</p>
+                                  <p className="text-lg font-bold text-accent-400">
+                                    {formatPrice(booking.totalPrice)}
+                                  </p>
+                                </div>
+
+                                <p className="text-xs text-primary-300">
+                                  Your booking has been created successfully.
+                                  Its current status is{" "}
+                                  {booking.status || "unknown"}.
+                                </p>
+                              </>
+                            );
+                          })()}
                         </div>
                       ) : bookingStatus[index] === "prepared" ||
                         bookingStatus[index] === "confirming" ? (
