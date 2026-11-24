@@ -286,6 +286,12 @@ async function createInteraction(model, input, previousInteractionId) {
       Only say that a cabin is available or unavailable
       based on the result returned by the tool.
 
+      When checking multiple cabins for availability:
+      - The application displays verified available cabins in separate cards.
+      - Keep your response concise.
+      - Do not enumerate every available cabin in your text response.
+      - Briefly introduce the results and ask whether the guest wants to reserve one.
+
       When a guest wants to make a reservation:
       - Collect the cabin number, check-in date, check-out date,
         and number of guests.
@@ -479,6 +485,9 @@ export async function POST(request) {
     let interaction;
     let reservationProposal = null;
 
+    let availabilityResults = [];
+    let cabinsData = [];
+
     // 6. Continue the Gemini interaction and handle tool calls.
     while (true) {
       const geminiStartedAt = performance.now();
@@ -530,7 +539,17 @@ export async function POST(request) {
           )} ms | Success: ${toolResult.success}`,
         );
 
-        // Capture the structured reservation proposal for the frontend.
+        // Capture cabin information for the frontend.
+        if (step.name === "get_cabins" && toolResult.success) {
+          cabinsData = toolResult.data;
+        }
+
+        // Capture verified availability results.
+        if (step.name === "check_availability" && toolResult.success) {
+          availabilityResults.push(toolResult.data);
+        }
+
+        // Capture the structured reservation proposal.
         if (step.name === "prepare_reservation_ai") {
           reservationProposal = toolResult.success
             ? toolResult.data.booking
@@ -571,9 +590,38 @@ export async function POST(request) {
     );
 
     // 8. Return the reply without exposing the Gemini interaction ID.
+    // Build structured data for available cabin cards.
+    const availableCabins = [
+      ...new Map(
+        availabilityResults
+          .filter((result) => result.available)
+          .map((result) => {
+            const cabin = cabinsData.find(
+              (item) => Number(item.name) === result.cabinNumber,
+            );
+
+            return [
+              result.cabinNumber,
+              {
+                cabinNumber: result.cabinNumber,
+                cabinName: result.cabinName,
+                startDate: result.startDate,
+                endDate: result.endDate,
+                available: result.available,
+                maxCapacity: cabin?.maxCapacity ?? null,
+                nightlyPrice: cabin
+                  ? cabin.regularPrice - cabin.discount
+                  : null,
+              },
+            ];
+          }),
+      ).values(),
+    ];
+
     const response = NextResponse.json({
       reply: interaction.output_text,
       reservationProposal,
+      availableCabins,
     });
 
     // 9. Set the visitor's cookie only when creating a new session.

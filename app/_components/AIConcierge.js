@@ -1,5 +1,6 @@
 "use client";
 
+import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 
 function formatDate(dateString) {
@@ -75,6 +76,7 @@ export default function AIConcierge() {
           role: "assistant",
           text: data.reply,
           reservationProposal: data.reservationProposal,
+          availableCabins: data.availableCabins || [],
         },
       ]);
     } catch (error) {
@@ -296,8 +298,100 @@ export default function AIConcierge() {
                         : "bg-primary-800 text-primary-100 rounded-xl rounded-bl-sm p-3 text-sm whitespace-pre-wrap"
                     }
                   >
-                    {msg.text}
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => (
+                          <p className="mb-3 last:mb-0 leading-relaxed">
+                            {children}
+                          </p>
+                        ),
+
+                        ul: ({ children }) => (
+                          <ul className="list-disc pl-5 mb-3 space-y-2">
+                            {children}
+                          </ul>
+                        ),
+
+                        ol: ({ children }) => (
+                          <ol className="list-decimal pl-5 mb-3 space-y-2">
+                            {children}
+                          </ol>
+                        ),
+
+                        li: ({ children }) => (
+                          <li className="pl-1">{children}</li>
+                        ),
+
+                        strong: ({ children }) => (
+                          <strong className="font-bold text-accent-400">
+                            {children}
+                          </strong>
+                        ),
+
+                        h3: ({ children }) => (
+                          <h3 className="font-semibold text-base mb-2">
+                            {children}
+                          </h3>
+                        ),
+                      }}
+                    >
+                      {msg.text}
+                    </ReactMarkdown>
                   </div>
+
+                  {msg.availableCabins?.length > 0 && (
+                    <div className="mt-3 space-y-3">
+                      <h3 className="text-sm font-semibold text-primary-100">
+                        Available cabins
+                      </h3>
+
+                      {msg.availableCabins.map((cabin) => (
+                        <div
+                          key={cabin.cabinNumber}
+                          className="bg-primary-900 border border-primary-700 rounded-lg p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-semibold text-primary-100">
+                              {cabin.cabinName || `Cabin ${cabin.cabinNumber}`}
+                            </h4>
+
+                            <span className="text-xs bg-green-900/40 text-green-400 px-2 py-1 rounded-full">
+                              Available
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-primary-300">
+                            Cabin number: {cabin.cabinNumber}
+                          </p>
+
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-primary-300">
+                              Maximum capacity
+                            </span>
+                            <span className="text-primary-100">
+                              {cabin.maxCapacity != null
+                                ? `${cabin.maxCapacity} guests`
+                                : "Not available"}
+                            </span>
+                          </div>
+
+                          {cabin.nightlyPrice != null && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-primary-300">
+                                Price per night
+                              </span>
+                              <span className="font-semibold text-accent-400">
+                                {new Intl.NumberFormat("en-US", {
+                                  style: "currency",
+                                  currency: "USD",
+                                }).format(cabin.nightlyPrice)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {msg.reservationProposal && (
                     <div className="mt-2 border border-accent-500 rounded-lg p-3 text-sm">
