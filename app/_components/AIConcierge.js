@@ -651,7 +651,7 @@ export default function AIConcierge({ initialOpen = false }) {
           onClick={() => setIsOpen((prev) => !prev)}
           aria-label={isOpen ? "Close AI Concierge" : "Open AI Concierge"}
           aria-expanded={isOpen}
-          className="h-16 w-16 rounded-full bg-accent-500 text-primary-950 shadow-xl hover:bg-accent-400 transition-all flex items-center justify-center text-3xl"
+          className="ai-concierge-orb"
         >
           {isOpen ? "×" : "✦"}
         </button>

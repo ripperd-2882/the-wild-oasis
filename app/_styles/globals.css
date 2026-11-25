@@ -37,3 +37,75 @@
   --rdp-background-color: theme("colors.accent.600") !important;
   margin: 0 !important;
 }
+
+/* AI Concierge futuristic launcher animation */
+.ai-concierge-orb {
+  position: relative;
+  isolation: isolate;
+  width: 64px;
+  height: 64px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  cursor: pointer;
+  color: white;
+  font-size: 30px;
+
+  background:
+    radial-gradient(circle at 30% 25%, #ffffff 0%, transparent 18%),
+    radial-gradient(circle at 70% 70%, #ff4fd8 0%, transparent 38%),
+    radial-gradient(circle at 30% 70%, #287bff 0%, transparent 48%),
+    radial-gradient(circle at 70% 25%, #00e5ff 0%, transparent 45%),
+    linear-gradient(135deg, #4825a8, #111d68);
+
+  background-size: 180% 180%;
+  animation: siri-orb 5s ease-in-out infinite;
+  box-shadow:
+    0 0 15px rgba(0, 229, 255, 0.55),
+    0 0 30px rgba(155, 80, 255, 0.4);
+}
+
+.ai-concierge-orb::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  z-index: -1;
+  background: conic-gradient(#00e5ff, #8b5cf6, #ff4fd8, #ff9f43, #00e5ff);
+  filter: blur(12px);
+  opacity: 0.75;
+  animation: siri-glow 4s ease-in-out infinite alternate;
+}
+
+@keyframes siri-orb {
+  0%,
+  100% {
+    background-position: 0% 50%;
+    transform: scale(1);
+  }
+  50% {
+    background-position: 100% 50%;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes siri-glow {
+  from {
+    transform: scale(0.95);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(1.12);
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-concierge-orb,
+  .ai-concierge-orb::before {
+    animation: none;
+  }
+}

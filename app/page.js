@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import bg from "@/public/bg.png";
+import AIConciergeLauncher from "./_components/AIConciergeLauncher";
 
 export default function Page() {
   return (
@@ -26,6 +27,8 @@ export default function Page() {
           Explore luxury cabins
         </Link>
       </div>
+
+      <AIConciergeLauncher />
     </main>
   );
 }
