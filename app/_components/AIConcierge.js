@@ -29,8 +29,8 @@ function formatPrice(amount) {
   }).format(Number(amount));
 }
 
-export default function AIConcierge() {
-  const [isOpen, setIsOpen] = useState(false);
+export default function AIConcierge({ initialOpen = false }) {
+  const [isOpen, setIsOpen] = useState(initialOpen);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
